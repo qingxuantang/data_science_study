@@ -2,7 +2,15 @@
 ## 所有在DS课程、练习和实践过程中遇到的python语法都汇总在这里，便于日后查找
 
 
+
+
 ```python
+
+
+
+# 转换成float格式
+data[1:]['adjusted_close'] = pd.to_numeric(data[1:]['adjusted_close'], downcast='float')
+
 # 寻找两个list中的共同项并且写入一个新的list
 
 list1 = [1,2,3,4,5,6]

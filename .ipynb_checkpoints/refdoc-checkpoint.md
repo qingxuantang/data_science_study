@@ -2,7 +2,15 @@
 ## 所有在DS课程、练习和实践过程中遇到的python语法都汇总在这里，便于日后查找
 
 
+
+
 ```python
+
+
+
+# 转换成float格式
+data[1:]['adjusted_close'] = pd.to_numeric(data[1:]['adjusted_close'], downcast='float')
+
 # 寻找两个list中的共同项并且写入一个新的list
 
 list1 = [1,2,3,4,5,6]
@@ -7392,3 +7400,115 @@ with open('./all_rsi_pattern_range_' + ti_name + '_' + test_ti + '.csv', 'w') as
 ```python
 
 ```
+all_price_pattern_range
+'''【第三步】：【继续向左读取特定范围，寻找 1sthigh 点】'''
+
+
+
+
+'''然后根据low点的index，回到 all_price_data 中去找其左侧 i - i_n*2 个点的range'''
+#all_potential_1sthigh_price_range = _2ndhigh_price_range.head(0).reset_index().drop(columns = 'range_count') #新建一个空的df，包含original index，time，Price，Price_minusByPre，Price_minusByPost
+all_potential_price_pattern_range = _2ndhigh_price_range.head(0).reset_index().drop(columns = 'range_count') #新建一个空的df，包含original index，time，Price，Price_minusByPre，Price_minusByPost
+
+'''下面将所有 1sthigh + low + 2ndhigh 放在一起，即 all_potential_price_pattern_range'''
+for (i,j) in zip(_2ndhigh_price_original_index3,low_price_original_index):
+#    for j in low_price_original_index:
+    #下一行：x这个df在上一段代码中定义过了。以2ndhigh点向右移动 [3] 个点为基准，获取原始index <= 这个index的行（即在其左侧），直到index等于 j-i_n*3，即low点原始index的左侧i_n*3个点的位置
+    #【注意！】因为low点与2ndhigh点之间的距离在每个区间中不尽相同（即j和i的距离不同），所以每个price pattern区间的行数可能都不同，【不能用行数做筛选条件！】
+    potential_price_pattern_range = x.loc[(x['original_index'] >= j-i_n*3) & (x['original_index'] <= i+3)] #!注意！此行区间数值范围要仔细核对！！！
+    #下面这行：在上面每一个range筛选出来后，先给 df 加一行title，即：time，Price，Price_minusByPre，Price_minusByPost 【这个title不是整个df的title，是为了在不同range之间作分割】
+    all_potential_price_pattern_range = all_potential_price_pattern_range.append(pd.DataFrame({'original_index':[int(-1)],'time': ['time'],test_ti: [test_ti],'Price_minusByPre': ['Price_minusByPre'],'Price_minusByPost': ['Price_minusByPost']}))
+    #下面这行：上一行加完title后，把本次筛选出来的range填补到 df 中。
+    all_potential_price_pattern_range = all_potential_price_pattern_range.append(potential_price_pattern_range) 
+
+'''此处开始设计双层indexing：对所有range进行计数，然后加入 range count 这个column中'''
+index_list = all_potential_price_pattern_range['original_index'].tolist()
+index_list2 = []
+n = 0
+for i in index_list:
+    if i == -1:
+        n += 1
+        index_list2.append(n)
+    else:
+        index_list2.append(n)
+#print(index_list2)
+all_potential_price_pattern_range.insert(0,'range_count_continuous',index_list2)
+#print(index_list)
+
+'''在df中新建一列，以便存储关键点位置的备注（second high，low，first high）'''
+all_potential_price_pattern_range['price_point_position'] = '' #在df中新建一列，用来存储关键点位置的备注
+#下一行：此处设计的range count，是从1开始计数的连续数列
+continuous_low_price_index = list(zip(range_count_continuous,low_price_original_index)) #low点的range count+original index tuple组合
+continuous_2ndhigh_price_original_index = list(zip(range_count_continuous,_2ndhigh_price_original_index3)) #2ndhigh点的range count+original index tuple组合
+#下一行：标注low点
+all_potential_price_pattern_range.loc[all_potential_price_pattern_range[['range_count_continuous', 'original_index']].apply(tuple, axis = 1).isin(continuous_low_price_index),'price_point_position'] = 'LOW'
+#下一行：标注2ndhigh点
+all_potential_price_pattern_range.loc[all_potential_price_pattern_range[['range_count_continuous', 'original_index']].apply(tuple, axis = 1).isin(continuous_2ndhigh_price_original_index),'price_point_position'] = 'SECOND HIGH'
+
+'''把range count 和 original index 做成两个不同层级的 multi index'''
+index = pd.MultiIndex.from_arrays([all_potential_price_pattern_range['range_count_continuous'],all_potential_price_pattern_range['original_index']], names = ('range_count_continuous','original_index'))
+#all_potential_price_pattern_range = all_potential_price_pattern_range.set_index(index) #因为下面还需要用没有设置multiindex的df，所以此行注释掉
+#all_potential_price_pattern_range = all_potential_price_pattern_range.drop(columns = ['range_count_continuous','original_index']) #这两列已经变成index了，所以从column中去掉
+
+
+
+'''【根据已经标注的low和2ndhigh点，在df中确认1sthigh点】'''
+#下一行：保留all_potential_price_pattern_range单一index的布局,所以此处使用set_index()特别调用multi-index的df
+potential_first_high_price_point = all_potential_price_pattern_range.set_index(index).head(0) 
+for idx, data in all_potential_price_pattern_range.set_index(index).groupby(level=0):#保留all_potential_low_price_range单一index的布局
+    #下一行说明:low_count是每个range里，从第一个数值到low点的个数
+    #说明1:减号前半部分是每个range的第一个数值（即original_index最小，对应time最早的那个数值）
+    #说明2:减号后半部分是low点所在行的original_index的数值
+    #说明3:二者相减再加1，就是第一个数值到low点所在位置的数值个数，但因为data[x:y]这个用法的右侧数值是不包含的，所以还需额外加1，所以下式最后面加2
+    low_count = int(data['original_index'].values[1] - int(data['original_index'][data['price_point_position'] == 'LOW'].values) + 2)
+    
+    '''下一行：筛选1sthigh点的条件！'''
+    #说明1：每一个range的第一行都是title名，所以在做数字运算判断时，把这一行排除，所以下面使用 data[1:low_count]，即从第二行开始
+    #说明2:对data进行区间slicing，必须用int，不能用float
+    '''具体条件（前两个条件）：1.该点必须比前后两点都大；并且2.该点比SECOND HIGH点【大】'''
+    result = data[1:low_count][(data[1:low_count].Price_minusByPre < 0) & (data[1:low_count].Price_minusByPost < 0) & (data[1:low_count].adjusted_close > float(data[test_ti][data['price_point_position'] == 'SECOND HIGH'].values))]
+    potential_first_high_price_point = potential_first_high_price_point.append(result) #得到所有潜在 1sthigh 点所在的行
+
+    
+'''具体条件（第三个）：3.如果同一个range有2个或更多，保留数值最大那个点'''
+#使用range将潜在1sthigh点进行groupby后，根据price这一列的值，保留最大值所在行，然后将这些行的index number写入 idx变量中
+idx = potential_first_high_price_point.groupby(level=0)[test_ti].transform(max) == potential_first_high_price_point[test_ti]
+potential_first_high_price_point = potential_first_high_price_point[idx]#【price取最大值】使用上面的index number更新 potential_first_high_rsi_point
+#idx = potential_first_high_price_point.groupby(level=0)['original_index'].transform(max) == potential_first_high_price_point['original_index'] #旧代码，取原始index最大值
+idx = potential_first_high_price_point.groupby(level=0)['original_index'].transform(min) == potential_first_high_price_point['original_index']
+first_high_price_point = potential_first_high_price_point[idx]#【original_index取最小值】使用上面的index number更新【first_high_price_point】
+
+#下一行：将 1sthigh 点的range count 和 original index写入一个tuple
+continuous_1sthigh_price_original_index = list(zip(first_high_price_point['range_count_continuous'],first_high_price_point['original_index']))
+#下一行：回到 all_potential_price_pattern_range 内，标注 1sthigh 点
+all_potential_price_pattern_range.loc[all_potential_price_pattern_range[['range_count_continuous', 'original_index']].apply(tuple, axis = 1).isin(continuous_1sthigh_price_original_index),'price_point_position'] = 'FIRST HIGH'
+#下一行：去掉不包含符合条件1sthigh点的range，即得到最终的【all_rsi_pattern_range】
+all_price_pattern_range = all_potential_price_pattern_range.loc[all_potential_price_pattern_range['range_count_continuous'].isin(first_high_price_point['range_count_continuous'].tolist())]
+
+'''整理price对应的low点，2ndhigh点的original index'''
+#下一行:给最终的all rsi pattern range设置index，用于使group by
+index_final = pd.MultiIndex.from_arrays([all_price_pattern_range['range_count_continuous'],all_price_pattern_range['original_index']], names = ('range_count_continuous','original_index'))
+low_price_original_index_final = []
+_2ndhigh_price_original_index_final = []
+for idx, data in all_price_pattern_range.set_index(index_final).groupby(level=0):
+    low_price_original_index_final.append(data['original_index'].loc[data['price_point_position'] == 'LOW'].values[0])
+    _2ndhigh_price_original_index_final.append(data['original_index'].loc[data['price_point_position'] == 'SECOND HIGH'].values[0])
+    
+low_price_original_index_final
+_2ndhigh_price_original_index_final
+
+
+
+#筛选区间增量单位
+print(test_ti + ' 筛选区间增量单位：', i_n)
+#2ndhigh相关
+print('2ndhigh ' + test_ti + ' range 区间宽度：', i_n+1+3)
+print('满足条件的 2ndhigh ' + test_ti + ' range 数量：', len(_2ndhigh_price_range.groupby(level=0))) #筛选出满足条件的2ndhigh price range
+#low + 2ndhigh相关
+print('low + 2ndhigh ' + test_ti + ' range 区间宽度：', i_n + i_n+1+3)
+print('满足条件的 low ' + test_ti + ' range 数量：', len(low_price_index)) #对range count去重之后
+#1sthigh + low + 2ndhigh相关
+print('满足条件的 1sthigh + low + 2ndhigh ' + test_ti + ' range 数量：', len(_2ndhigh_price_original_index_final))
+
+
+all_price_pattern_range
